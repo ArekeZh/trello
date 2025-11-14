@@ -1,0 +1,259 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="main-page">
+    <div class="boards-header">
+        <h1>📂Мои доски</h1>
+        <button class="create-board-btn" id="create-board-btn" style="display:none;"><b>+ Создать новую
+                доску</b></button>
+    </div>
+    <div id="boards-grid" class="boards-grid"></div>
+</div>
+
+<!-- Удаление доски -->
+<div id="delete-modal" class="modal" style="display:none;">
+    <div class="modal-content" style="position:relative;">
+        <button id="close-delete-modal" class="modal-close-btn">&times;</button>
+        <div class="modal-title">Вы уверены, что хотите удалить доску?</div>
+        <div class="modal-actions">
+            <button id="confirm-delete-btn" class="modal-btn delete">Да</button>
+            <button id="cancel-delete-btn" class="modal-btn">Нет</button>
+        </div>
+    </div>
+</div>
+
+<!-- Добавление доски -->
+<div id="create-modal" class="modal" style="display:none;">
+    <div class="modal-content" style="position:relative;">
+        <button id="close-create-modal" class="modal-close-btn">&times;</button>
+        <div class="modal-title">Создать новую доску</div>
+        <form class="create-board-form" autocomplete="off" onsubmit="return false;">
+            <label class="modal-label">Название доски<span style="color:#e45d5d;">*</span></label>
+            <input id="board-title-input" type="text" class="modal-input" maxlength="120" required>
+            <label class="modal-label">Описание (необязательно)</label>
+            <textarea id="board-desc-input" class="modal-input" rows="2" maxlength="300"></textarea>
+            <div class="modal-actions modal-actions-bottom">
+                <button type="button" id="cancel-create-btn" class="modal-btn">Отмена</button>
+                <button type="submit" id="submit-create-btn" class="modal-btn create">Создать</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Модальное окно "Изменить доску" -->
+<div id="edit-modal" class="modal" style="display:none;">
+    <div class="modal-content" style="position:relative;">
+        <button id="close-edit-modal" class="modal-close-btn">&times;</button>
+        <div class="modal-title">Изменить доску</div>
+        <form class="edit-board-form" autocomplete="off" onsubmit="return false;">
+            <label class="modal-label">Название доски<span style="color:#e45d5d;">*</span></label>
+            <input id="edit-board-title-input" type="text" class="modal-input" maxlength="120" required>
+            <label class="modal-label">Описание</label>
+            <textarea id="edit-board-desc-input" class="modal-input" rows="2" maxlength="300"></textarea>
+            <div class="modal-actions modal-actions-bottom">
+                <button type="button" id="cancel-edit-btn" class="modal-btn">Отмена</button>
+                <button type="submit" id="submit-edit-btn" class="modal-btn create">Изменить</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extrascripts %}
+<script>
+    function formatDate(datetime) {
+        const d = new Date(datetime);
+        return d.toLocaleDateString('ru-RU') + ' ' + d.toLocaleTimeString('ru-RU').slice(0, 5);
+    }
+
+    let boardToDelete = null;
+
+    window.deleteBoard = function (boardId) {
+        boardToDelete = boardId;
+        document.getElementById("delete-modal").style.display = "flex";
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+        const grid = document.getElementById("boards-grid");
+        const createBtn = document.getElementById("create-board-btn");
+        const token = localStorage.getItem("authToken");
+
+        function renderBoards(boards) {
+            grid.innerHTML = "";
+            if (boards.length) {
+                boards.forEach(board => {
+                    const card = document.createElement("div");
+                    card.className = "board-card";
+                    card.dataset.boardId = board.id;
+                    card.innerHTML = `
+                    <div class="board-card-header">
+                        <span class="board-title">${board.title}</span>
+                    </div>
+                    <div class="board-card-description">${board.description ? board.description : ""}</div>
+                    <div class="mini-divider"></div>
+                    <div class="board-card-footer">
+                        <span class="board-date">Создана: ${formatDate(board.created_at)}</span>
+                        <div class="board-actions">
+                            <button class="board-action-btn"onclick="event.stopPropagation(); renameBoard('${board.id}','${board.title.replace(/'/g, "\\'")}',\`${(board.description || "").replace(/`/g, "\\`")}\`)">✏️</button>
+                            <button class="board-action-btn delete" onclick="event.stopPropagation(); deleteBoard('${board.id}')">🗑️</button>
+                        </div>
+                    </div>
+                `;
+                    card.onclick = (e) => {
+                        if (!e.target.classList.contains('board-action-btn')) {
+                            window.location.href = `/board/${board.id}/`;
+                        }
+                    };
+                    grid.appendChild(card);
+                });
+            } else {
+                grid.innerHTML = '<div class="no-boards-message">У вас еще нет досок.</div>';
+            }
+        }
+
+        function renderGuest() {
+            grid.innerHTML = '<div class="no-boards-message">Войдите для просмотра досок.</div>';
+            createBtn.style.display = "none";
+        }
+
+        // Удаление доски
+        document.getElementById("confirm-delete-btn").onclick = function () {
+            if (!boardToDelete) return;
+            fetch(`/api/boards/${boardToDelete}/`, {
+                method: "DELETE",
+                headers: { "Authorization": "Token " + token }
+            }).then(() => {
+                // Убираем карточку доски из DOM:
+                const el = document.querySelector(`[data-board-id='${boardToDelete}']`);
+                if (el) el.remove();
+                document.getElementById("delete-modal").style.display = "none";
+                boardToDelete = null;
+                // Если не осталось досок, показать сообщение:
+                if (!document.querySelector('.board-card')) {
+                    grid.innerHTML = '<div class="no-boards-message">У вас еще нет досок.</div>';
+                }
+            });
+        };
+
+        document.getElementById("cancel-delete-btn").onclick = function () {
+            document.getElementById("delete-modal").style.display = "none";
+            boardToDelete = null;
+        };
+
+        // Изменение доски
+        let boardToEditId = null;
+
+        window.renameBoard = function (boardId, oldTitle, oldDesc = "") {
+            boardToEditId = boardId;
+            document.getElementById("edit-board-title-input").value = oldTitle || "";
+            document.getElementById("edit-board-desc-input").value = oldDesc || "";
+            document.getElementById("edit-modal").style.display = "flex";
+            document.getElementById("edit-board-title-input").focus();
+        };
+
+
+        if (token) {
+            fetch("/api/boards/", {
+                headers: { "Authorization": "Token " + token }
+            })
+                .then(res => res.json())
+                .then(data => {
+                    createBtn.style.display = "inline-block";
+                    renderBoards(data);
+                })
+                .catch(() => renderGuest());
+        } else {
+            renderGuest();
+        }
+
+        // Открытие окна создания
+        createBtn.onclick = function () {
+            document.getElementById("create-modal").style.display = "flex";
+            document.getElementById("board-title-input").value = "";
+            document.getElementById("board-desc-input").value = "";
+            document.getElementById("board-title-input").focus();
+        };
+
+        // Закрытие окна (по X или "Отмена")
+        function closeCreateModal() {
+            document.getElementById("create-modal").style.display = "none";
+        }
+        document.getElementById("close-create-modal").onclick = closeCreateModal;
+        document.getElementById("cancel-create-btn").onclick = closeCreateModal;
+
+        // Закрытия окна удаления по Х
+        document.getElementById("close-delete-modal").onclick = function () {
+            document.getElementById("delete-modal").style.display = "none";
+            boardToDelete = null;
+        };
+
+        // Сабмит через форму
+        document.querySelector(".create-board-form").onsubmit = function () {
+            const boardTitle = document.getElementById("board-title-input").value.trim();
+            const boardDesc = document.getElementById("board-desc-input").value.trim();
+            if (!boardTitle) {
+                document.getElementById("board-title-input").focus();
+                return false;
+            }
+            fetch("/api/boards/", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": "Token " + token
+                },
+                body: JSON.stringify({ title: boardTitle, description: boardDesc })
+            })
+                .then(res => res.json())
+                .then(board => {
+                    closeCreateModal();
+                    // Добавляем новый board в DOM:
+                    renderBoards([board, ...Array.from(document.querySelectorAll('.board-card')).map(cardEl => ({
+                        id: cardEl.dataset.boardId,
+                        title: cardEl.querySelector('.board-title').textContent,
+                        description: cardEl.querySelector('.board-card-description').textContent,
+                        created_at: cardEl.querySelector('.board-date')?.textContent?.replace('Создана: ', '') || ''
+                    }))]);
+                });
+            return false;
+        };
+
+        // Закрыть окно по X или "Отмена"
+        function closeEditModal() {
+            document.getElementById("edit-modal").style.display = "none";
+            boardToEditId = null;
+        }
+        document.getElementById("close-edit-modal").onclick = closeEditModal;
+        document.getElementById("cancel-edit-btn").onclick = closeEditModal;
+
+        // Сабмит формы изменения
+        document.querySelector(".edit-board-form").onsubmit = function () {
+            const newTitle = document.getElementById("edit-board-title-input").value.trim();
+            const newDesc = document.getElementById("edit-board-desc-input").value.trim();
+            if (!newTitle) {
+                document.getElementById("edit-board-title-input").focus();
+                return false;
+            }
+            fetch(`/api/boards/${boardToEditId}/`, {
+                method: "PATCH",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": "Token " + token
+                },
+                body: JSON.stringify({ title: newTitle, description: newDesc })
+            })
+                .then(res => res.json())
+                .then(updatedBoard => {
+                    closeEditModal();
+                    // Обновить только нужную карточку доски в DOM:
+                    const card = document.querySelector(`[data-board-id='${updatedBoard.id}']`);
+                    if (card) {
+                        card.querySelector('.board-title').textContent = updatedBoard.title;
+                        card.querySelector('.board-card-description').textContent = updatedBoard.description || "";
+                    }
+                });
+            return false;
+        };
+    });
+</script>
+{% endblock %}
